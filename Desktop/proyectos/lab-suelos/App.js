@@ -819,16 +819,16 @@ function Calculos({ muestras, guardarEnsayo, borrarEnsayo, operario, ensayoAEdit
   const [modo, setModo] = useState('humedad');
   const MODOS = [
     { id:'humedad',     label:'Humedad' },
-    { id:'densidad',    label:'Densidad' },
-    { id:'atterberg',   label:'Índice Plástico' },
-    { id:'contraccion', label:'Contracción' },
-    { id:'proctor',     label:'Proctor' },
-    { id:'cono',        label:'Cono de arena' },
-    { id:'cbr',         label:'CBR' },
-    { id:'aashto',      label:'AASHTO' },
-    { id:'dosif',       label:'Dosificación' },
     { id:'granulo',     label:'Granulometría' },
     { id:'its',         label:'ITS (Asfalto)' },
+    { id:'proctor',     label:'Proctor' },
+    { id:'cbr',         label:'CBR' },
+    { id:'cono',        label:'Cono de arena' },
+    { id:'densidad',    label:'Densidad' },
+    { id:'contraccion', label:'Contracción' },
+    { id:'dosif',       label:'Dosificación' },
+    { id:'slurry_dosif', label:'Slurry (Dosif)' },
+    { id:'slurry_ensayos', label:'Slurry (Ensayos)' },
   ];
   return (
     <KeyboardAwareScrollView 
@@ -860,6 +860,8 @@ function Calculos({ muestras, guardarEnsayo, borrarEnsayo, operario, ensayoAEdit
         {modo==='dosif'       && <CalcDosif        muestras={muestras} guardarEnsayo={guardarEnsayo}/>}
         {modo==='granulo'     && <CalcGranulo      muestras={muestras} guardarEnsayo={guardarEnsayo}/>}
         {modo==='its'         && <CalcITS          muestras={muestras} guardarEnsayo={guardarEnsayo} borrarEnsayo={borrarEnsayo} ensayoAEditar={ensayoAEditar} setEnsayoAEditar={setEnsayoAEditar}/>}
+        {modo==='slurry_dosif' && <CalcSlurryDosif muestras={muestras} guardarEnsayo={guardarEnsayo}/>}
+
       </KeyboardAwareScrollView>
   );
 }
@@ -1199,7 +1201,7 @@ function CalcProctor({ muestras, guardarEnsayo }) {
       <View style={s.row}>
         <View style={{flex:1}}>
       <Text style={s.label}>Fecha de Producción</Text>
-      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+      <TextInput style={s.input} placeholder="DD-MM-AAAA" 
         placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
 
           <Text style={s.label}>Vol. molde (cm³)</Text>
@@ -1376,7 +1378,7 @@ function CalcConoArena({ muestras, guardarEnsayo }) {
       <Text style={s.cardTitle}>Cono de arena · Densidad in situ</Text>
       
       <Text style={s.label}>Fecha de Producción</Text>
-      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+      <TextInput style={s.input} placeholder="DD-MM-AAAA" 
         placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
 
       <Text style={s.label}>Muestra</Text>
@@ -1465,23 +1467,335 @@ function CalcConoArena({ muestras, guardarEnsayo }) {
     </View>
   );
 }
-
-function CalcCBR({ muestras, guardarEnsayo }) {
+function CalcSlurryDosif({ muestras, guardarEnsayo }) {
   const [fechaProd, setFechaProd] = useState(hoy());
   const [cod,setCod]=useState('');
   const [obs,setObs]=useState('');
-  const [piston,setPiston]=useState('19.35');
-  const [puntos,setPuntos]=useState(
-    Array.from({length:8},()=>({ pen:'', carga:'' }))
+
+  // Datos base
+  const [arido,setArido]=useState('1000'); 
+  const [pctFiller,setPctFiller]=useState('0.5');
+  const [pctAgua,setPctAgua]=useState('9');
+  const [pctEmulsion,setPctEmulsion]=useState('13');
+  
+  // Residuo de emulsión
+  const [re,setRe]=useState('');
+  const [mw,setMw]=useState('');
+  const [ms,setMs]=useState('');
+
+  // Cálculos de gramos
+  const A = num(arido);
+  const PF = num(pctFiller);
+  const PA = num(pctAgua);
+  const PE = num(pctEmulsion);
+  
+  const gFiller = (A && Number.isFinite(PF)) ? (A * PF / 100) : null;
+  const gAgua = (A && Number.isFinite(PA)) ? (A * PA / 100) : null;
+  const gEmulsion = (A && Number.isFinite(PE)) ? (A * PE / 100) : null;
+
+  // Cálculo de residuo
+  const RE = num(re), MW = num(mw), MS = num(ms);
+  const okResiduo = Number.isFinite(RE) && Number.isFinite(MW) && Number.isFinite(MS) && MS > 0;
+  const pctResiduo = (okResiduo && (MW - RE) > 0) ? ((MS - RE) / (MW - RE)) * 100 : null;
+
+  // Cálculo del residuo asfáltico (si tenemos el % de residuo)
+  const gResiduo = (gEmulsion && pctResiduo !== null) ? (gEmulsion * pctResiduo / 100) : null;
+  const pesoTotal = (A && gFiller && gAgua && gEmulsion) ? (A + gFiller + gAgua + gEmulsion) : null;
+
+  const guardar = () => {
+    guardarEnsayo({
+      tipo: 'Slurry - Dosificación', muestra: cod || 's/c', fechaProd: fechaProd,
+      entradas: `Árido: ${A}g · Filler: ${PF}% · Agua: ${PA}% · Emulsión: ${PE}%`,
+      resultado: `Filler: ${r(gFiller,1)}g · Agua: ${r(gAgua,1)}g · Emulsión: ${r(gEmulsion,1)}g · Residuo: ${r(pctResiduo,1)}%`,
+      observaciones: obs.trim(),
+    });
+    Alert.alert('✅','Dosificación guardada.');
+    setObs('');
+  };
+
+  return (
+    <View style={s.card}>
+      <Text style={s.cardTitle}>Slurry · Dosificación</Text>
+      
+      <Text style={s.label}>Fecha de Producción</Text>
+      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+        placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
+
+      <Text style={s.label}>Muestra</Text>
+      <SelectorMuestra muestras={muestras} valor={cod} setValor={setCod}/>
+
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>1. Composición (% sobre árido)</Text>
+      <Text style={s.label}>Peso del Árido (g)</Text>
+      <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 1000" value={arido} onChangeText={setArido} placeholderTextColor={C.muted}/>
+
+      <View style={[s.row, {marginTop: 10}]}>
+        <View style={{flex:1}}>
+          <Text style={s.label}>% Filler</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="0.5" value={pctFiller} onChangeText={setPctFiller} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:6}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>% Agua</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="9" value={pctAgua} onChangeText={setPctAgua} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:6}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>% Emulsión</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="13" value={pctEmulsion} onChangeText={setPctEmulsion} placeholderTextColor={C.muted}/>
+        </View>
+      </View>
+
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>2. Determinación de Residuo</Text>
+      <View style={[s.row, {marginTop: 5}]}>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Peso Emulsión (Re)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 671" value={re} onChangeText={setRe} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:6}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Masa Húmeda (Mw)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 971" value={mw} onChangeText={setMw} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:6}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Masa Seca (Ms)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 857" value={ms} onChangeText={setMs} placeholderTextColor={C.muted}/>
+        </View>
+      </View>
+
+      {pctResiduo !== null && (
+        <View style={[s.resultado, {marginTop: 15}]}>
+          <Text style={[s.resultadoLabel, { fontSize: 13 }]}>% Residuo de Emulsión</Text>
+          <Text style={[s.resultadoValor, {color: C.ok, fontSize: 25}]}>{r(pctResiduo, 1)} %</Text>
+        </View>
+      )}
+
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>3. Dosificación en Gramos</Text>
+      <View style={[s.resultado, {marginTop: 5}]}>
+        <Text style={[s.resultadoLabel, { fontSize: 14, marginTop: 6 }]}>Filler: {gFiller !== null ? `${r(gFiller,1)} g` : '—'}</Text>
+        <Text style={[s.resultadoLabel, { fontSize: 14, marginTop: 6 }]}>Agua: {gAgua !== null ? `${r(gAgua,1)} g` : '—'}</Text>
+        <Text style={[s.resultadoLabel, { fontSize: 14, marginTop: 6 }]}>Emulsión: {gEmulsion !== null ? `${r(gEmulsion,1)} g` : '—'}</Text>
+        {gResiduo !== null && <Text style={[s.resultadoLabel, {marginTop: 6, color: C.accent2, fontSize: 14, fontWeight: 'bold'}]}>Residuo Asfáltico: {r(gResiduo,1)} g</Text>}
+        {pesoTotal !== null && <Text style={[s.resultadoLabel, {marginTop: 6, fontWeight: 'bold', fontSize: 14, color: C.accent}]}>Peso Total: {r(pesoTotal,1)} g</Text>}
+      </View>
+
+      <ObsInput value={obs} onChange={setObs}/>
+      <BotonGuardar onPress={guardar}/>
+    </View>
   );
-  const AREA = num(piston) || 19.35;
+}
+function CalcCBR({ muestras, guardarEnsayo }) {
+function CalcSlurryEnsayos({ muestras, guardarEnsayo }) {
+  const [fechaProd, setFechaProd] = useState(hoy());
+  const [cod,setCod]=useState('');
+  const [obs,setObs]=useState('');
+  
+  // Tipo de ensayo
+  const [tipoEnsayo, setTipoEnsayo] = useState('Abrasión');
+
+
+  // --- Datos para Abrasión ---
+  const [mezcla, setMezcla] = useState('M1');
+  const [emulsion, setEmulsion] = useState('13');
+  const [filler, setFiller] = useState('0.5');
+  const [agua, setAgua] = useState('9');
+  const [pesoConstante, setPesoConstante] = useState('');
+  const [pesoAbrasion, setPesoAbrasion] = useState('');
+
+  // --- Datos para Rueda Cargada (LWT) ---
+  const [pesoEspSeco, setPesoEspSeco] = useState('');
+  const [pesoPostComp, setPesoPostComp] = useState('');
+  const [pesoPostArena, setPesoPostArena] = useState('');
+  const [arenaAdherida, setArenaAdherida] = useState('');
+
+  // Cálculo de Abrasión
+  const PC = num(pesoConstante), PA = num(pesoAbrasion);
+  const okAbrasion = Number.isFinite(PC) && Number.isFinite(PA) && PC > 0;
+  // Pérdida (g/m²) = (Peso inicial - Peso final) / Área (0.1 m²)
+  const area = 0.1; 
+  const perdidaAbrasion = okAbrasion ? ((PC - PA) / area) : null;
+
+  // Cálculo de LWT
+  const PES = num(pesoEspSeco), PPC = num(pesoPostComp), PPA = num(pesoPostArena), AA = num(arenaAdherida);
+  const okLWT = Number.isFinite(PES) && Number.isFinite(PPC) && Number.isFinite(PPA) && Number.isFinite(AA);
+  
+  // Exceso de asfalto = (Peso Post Comp - Peso Post Arena) / Área
+  const lwtExceso = okLWT ? ((PPC - PPA) / area) : null;
+  // Adherencia de arena = Arena adherida / Área
+  const adherenciaArena = okLWT ? (AA / area) : null;
+
+  const guardar = () => {
+    if (tipoEnsayo === 'Abrasión') {
+      if (!okAbrasion) return Alert.alert('Faltan datos', 'Cargá los pesos de abrasión.');
+      guardarEnsayo({
+        tipo: 'Slurry - Abrasión', muestra: cod || 's/c', fechaProd: fechaProd,
+        entradas: `${mezcla} · Emul: ${emulsion}% · Filler: ${filler}% · Agua: ${agua}%`,
+        resultado: `Pérdida: ${r(perdidaAbrasion, 1)} g/m²`,
+        observaciones: obs.trim(),
+      });
+    } else {
+      if (!okLWT) return Alert.alert('Faltan datos', 'Cargá los pesos de rueda cargada.');
+      guardarEnsayo({
+        tipo: 'Slurry - Rueda Cargada (LWT)', muestra: cod || 's/c', fechaProd: fechaProd,
+        entradas: `P. Seco: ${PES}g · P. Comp: ${PPC}g · P. Arena: ${PPA}g · Arena Adh: ${AA}g`,
+        resultado: `LWT Exceso: ${r(lwtExceso, 1)} g/m² · Adherencia: ${r(adherenciaArena, 1)} g/m²`,
+        observaciones: obs.trim(),
+      });
+    }
+    Alert.alert('✅','Ensayo guardado.');
+    setObs('');
+  };
+
+  return (
+    <View style={s.card}>
+      <Text style={s.cardTitle}>Slurry · Ensayos Físicos</Text>
+      
+      <Text style={s.label}>Fecha de Producción</Text>
+      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+        placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
+
+      <Text style={s.label}>Muestra</Text>
+      <SelectorMuestra muestras={muestras} valor={cod} setValor={setCod}/>
+
+      <Text style={s.label}>Tipo de Ensayo</Text>
+      <View style={s.chipsWrap}>
+        {['Abrasión', 'Rueda Cargada'].map(t => (
+          <TouchableOpacity key={t} style={[s.chip, tipoEnsayo===t && s.chipActivo]} onPress={()=>setTipoEnsayo(t)}>
+            <Text style={[s.chipText, tipoEnsayo===t && {color:'#1A1004'}]}>{t}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {tipoEnsayo === 'Abrasión' ? (
+        <>
+          <Text style={[s.label, {marginTop: 15, color: C.accent}]}>Datos de la Mezcla</Text>
+          <View style={s.row}>
+            <View style={{flex:1}}>
+              <Text style={s.label}>Mezcla (M1, M2...)</Text>
+              <TextInput style={s.input} placeholder="Ej. M1" value={mezcla} onChangeText={setMezcla} placeholderTextColor={C.muted}/>
+            </View>
+            <View style={{width:6}}/>
+            <View style={{flex:1}}>
+              <Text style={s.label}>% Emulsión</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="13" value={emulsion} onChangeText={setEmulsion} placeholderTextColor={C.muted}/>
+            </View>
+          </View>
+          <View style={[s.row, {marginTop: 6}]}>
+            <View style={{flex:1}}>
+              <Text style={s.label}>% Filler</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="0.5" value={filler} onChangeText={setFiller} placeholderTextColor={C.muted}/>
+            </View>
+            <View style={{width:6}}/>
+            <View style={{flex:1}}>
+              <Text style={s.label}>% Agua</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="9" value={agua} onChangeText={setAgua} placeholderTextColor={C.muted}/>
+            </View>
+          </View>
+
+          <Text style={[s.label, {marginTop: 15, color: C.accent}]}>Pesos (g)</Text>
+          <View style={s.row}>
+            <View style={{flex:1}}>
+              <Text style={s.label}>Peso Constante</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 836.0" value={pesoConstante} onChangeText={setPesoConstante} placeholderTextColor={C.muted}/>
+            </View>
+            <View style={{width:6}}/>
+            <View style={{flex:1}}>
+              <Text style={s.label}>Peso Abrasión</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 834.0" value={pesoAbrasion} onChangeText={setPesoAbrasion} placeholderTextColor={C.muted}/>
+            </View>
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={[s.label, {marginTop: 15, color: C.accent}]}>Pesos LWT (g)</Text>
+          <View style={s.row}>
+            <View style={{flex:1}}>
+              <Text style={s.label}>P. Espécimen Seco</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 732.0" value={pesoEspSeco} onChangeText={setPesoEspSeco} placeholderTextColor={C.muted}/>
+            </View>
+            <View style={{width:6}}/>
+            <View style={{flex:1}}>
+              <Text style={s.label}>P. Post Compactación</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 732.0" value={pesoPostComp} onChangeText={setPesoPostComp} placeholderTextColor={C.muted}/>
+            </View>
+          </View>
+          <View style={[s.row, {marginTop: 6}]}>
+            <View style={{flex:1}}>
+              <Text style={s.label}>P. Post Arena</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 740.0" value={pesoPostArena} onChangeText={setPesoPostArena} placeholderTextColor={C.muted}/>
+            </View>
+            <View style={{width:6}}/>
+            <View style={{flex:1}}>
+              <Text style={s.label}>Arena Adherida (g)</Text>
+              <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 8.0" value={arenaAdherida} onChangeText={setArenaAdherida} placeholderTextColor={C.muted}/>
+            </View>
+          </View>
+        </>
+      )}
+
+      {/* RESULTADOS */}
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>Resultados</Text>
+      
+      {tipoEnsayo === 'Abrasión' && perdidaAbrasion !== null && (
+        <View style={[s.resultado, {marginTop: 5}]}>
+          <Text style={[s.resultadoLabel, { fontSize: 16 }]}>Pérdida por Abrasión</Text>
+          <Text style={[s.resultadoValor, {color: C.ok, fontSize: 24}]}>{r(perdidaAbrasion, 1)} g/m²</Text>
+        </View>
+      )}
+
+      {tipoEnsayo === 'Rueda Cargada' && lwtExceso !== null && (
+        <View style={[s.resultado, {marginTop: 5}]}>
+          <Text style={[s.resultadoLabel, { fontSize: 16 }]}>LWT - Exceso de Asfalto</Text>
+          <Text style={[s.resultadoValor, {color: C.ok, fontSize: 24}]}>{r(lwtExceso, 1)} g/m²</Text>
+        </View>
+      )}
+
+      {tipoEnsayo === 'Rueda Cargada' && adherenciaArena !== null && (
+        <View style={[s.resultado, {marginTop: 5}]}>
+          <Text style={[s.resultadoLabel, { fontSize: 16 }]}>Adherencia de Arena</Text>
+          <Text style={[s.resultadoValor, {color: C.accent2, fontSize: 24}]}>{r(adherenciaArena, 1)} g/m²</Text>
+        </View>
+      )}
+
+      <ObsInput value={obs} onChange={setObs}/>
+      <BotonGuardar onPress={guardar}/>
+    </View>
+  );
+}
+  const [fechaProd, setFechaProd] = useState(hoy());
+  const [cod,setCod]=useState('');
+  const [obs,setObs]=useState('');
+  const [pesoMoldeSuelo,setPesoMoldeSuelo]=useState('');
+  const [pesoMolde,setPesoMolde]=useState('');
+  const [volMolde,setVolMolde]=useState('');
+  const [humedad,setHumedad]=useState('');
+  const [factorAro,setFactorAro]=useState('');
+  const [densidadProctor,setDensidadProctor]=useState('');
+  const [puntos,setPuntos]=useState(
+    Array.from({length:11},(_,i)=>({ pen: [0.635, 1.27, 1.905, 2.54, 3.17, 3.81, 4.44, 5.08, 7.62, 10.2, 12.7][i].toString(), lectura:'' }))
+  );
 
   const setP = (i,k,v) => setPuntos((p)=>p.map((it,idx)=>idx===i?{...it,[k]:v}:it));
 
+  const PMS = num(pesoMoldeSuelo), PM = num(pesoMolde), VM = num(volMolde), H = num(humedad);
+  const FA = num(factorAro), DP = num(densidadProctor);
+  const AREA = 19.35;
+
+  const okMolde = Number.isFinite(PMS) && Number.isFinite(PM) && Number.isFinite(VM) && VM > 0 && Number.isFinite(H);
+  const masaSuelo = okMolde ? (PMS - PM) : null;
+  const densH = (masaSuelo && VM) ? (masaSuelo / VM) : null;
+  const densS = (densH && Number.isFinite(H)) ? (densH / (1 + H/100)) : null;
+
   const medidos = puntos
-    .map(p=>({ pen:num(p.pen), carga:num(p.carga) }))
-    .filter(p=>Number.isFinite(p.pen)&&Number.isFinite(p.carga)&&p.pen>=0)
-    .map(p=>({ ...p, esf: p.carga/AREA }))
+    .map(p => {
+      const pen = num(p.pen);
+      const lec = num(p.lectura);
+      if (!Number.isFinite(pen) || !Number.isFinite(lec) || !Number.isFinite(FA) || FA <= 0) return null;
+      const cargaKg = lec * FA;
+      const esf = cargaKg / AREA;
+      return { pen, cargaKg, esf };
+    })
+    .filter(p => p !== null)
     .sort((a,b)=>a.pen-b.pen);
 
   const interpol = (mm) => {
@@ -1501,61 +1815,98 @@ function CalcCBR({ muestras, guardarEnsayo }) {
   const esf50 = interpol(5.0);
   const cbr25 = esf25!==null ? (esf25/70.3)*100 : null;
   const cbr50 = esf50!==null ? (esf50/105.5)*100 : null;
-  let cbrFinal = null;
-  if (cbr25!==null && cbr50!==null) cbrFinal = cbr25 >= cbr50 ? cbr25 : cbr50;
-  else cbrFinal = cbr25 ?? cbr50;
+  let cbrBruto = null;
+  if (cbr25!==null && cbr50!==null) cbrBruto = cbr25 >= cbr50 ? cbr25 : cbr50;
+  else cbrBruto = cbr25 ?? cbr50;
+
+  const pctCompactacion = (densS !== null && Number.isFinite(DP) && DP > 0)
+    ? (densS / DP) * 100
+    : null;
 
   const guardar = () => {
-    if (medidos.length < 3) return Alert.alert('Faltan datos','Cargá al menos 3 puntos.');
-    if (cbrFinal===null) return Alert.alert('Faltan datos','Necesito lectura cerca de 2.5 y/o 5.0 mm.');
+    if (!okMolde) return Alert.alert('Faltan datos', 'Cargá los datos del molde.');
+    if (!Number.isFinite(FA) || FA <= 0) return Alert.alert('Falta factor', 'Ingresá el factor del aro.');
+    if (cbrBruto === null) return Alert.alert('Faltan lecturas', 'Cargá al menos las lecturas de 2.5 y 5.0 mm.');
+    
     guardarEnsayo({
-      tipo:'CBR', muestra:cod||'s/c',
-      entradas:`${medidos.length} puntos · Área pistón ${AREA} cm²`,
-      resultado:`CBR = ${r(cbrFinal)} %` +
-        (cbr25!==null?` · 2.5mm: ${r(cbr25)}%`:'') +
-        (cbr50!==null?` · 5.0mm: ${r(cbr50)}%`:''),
+      tipo: 'CBR', muestra: cod || 's/c', fechaProd: fechaProd,
+      entradas: `Dens. seca: ${r(densS,3)} g/cm³ · Factor Aro: ${FA}`,
+      resultado: `CBR bruto: ${r(cbrBruto, 1)} % · Densidad: ${r(pctCompactacion, 1)}% del Proctor`,
       observaciones: obs.trim(),
+      detalle: medidos.map(m => `Pen ${m.pen}mm: ${r(m.cargaKg,2)} kg → ${r(m.esf,2)} kg/cm²`).join(' | '),
     });
     Alert.alert('✅','CBR guardado.');
+    setPesoMoldeSuelo(''); setPesoMolde(''); setVolMolde(''); setHumedad(''); setFactorAro(''); setDensidadProctor(''); 
+    setPuntos(Array.from({length:8},()=>({ pen:'', lectura:'' })));
     setObs('');
   };
 
   return (
     <View style={s.card}>
       <Text style={s.cardTitle}>CBR (California Bearing Ratio)</Text>
-      <Text style={s.formula}>Esf = Carga/Área · CBR = Esf/Esf_patrón × 100</Text>
-      <Text style={[s.itemSub,{marginBottom:6}]}>
-        Patrón: 70.3 kg/cm² a 2.5 mm · 105.5 kg/cm² a 5.0 mm
-      </Text>
+      <Text style={s.formula}>CBR = (Esfuerzo / Esf_patrón) × 100</Text>
 
       <Text style={s.label}>Fecha de Producción</Text>
-      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+      <TextInput style={s.input} placeholder="DD-MM-AAAA" 
         placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
 
       <Text style={s.label}>Muestra</Text>
       <SelectorMuestra muestras={muestras} valor={cod} setValor={setCod}/>
 
-      <Text style={s.label}>Área del pistón (cm²)</Text>
-      <TextInput style={s.input} keyboardType="decimal-pad"
-        placeholderTextColor={C.muted} value={piston} onChangeText={setPiston}/>
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>1. Datos del Molde</Text>
+      <View style={s.row}>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Peso Molde + Suelo (g)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 12000" value={pesoMoldeSuelo} onChangeText={setPesoMoldeSuelo} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:10}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Peso Molde (g)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 7000" value={pesoMolde} onChangeText={setPesoMolde} placeholderTextColor={C.muted}/>
+        </View>
+      </View>
 
-      <Text style={s.label}>Puntos (Penetración mm · Carga kg)</Text>
+      <View style={[s.row, {marginTop: 10}]}>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Volumen Molde (cm³)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 2124" value={volMolde} onChangeText={setVolMolde} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:10}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Humedad (%)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 5.3" value={humedad} onChangeText={setHumedad} placeholderTextColor={C.muted}/>
+        </View>
+      </View>
+
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>2. Configuración del Ensayo</Text>
+      <View style={s.row}>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Factor del Aro (kg/div)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 2.101" value={factorAro} onChangeText={setFactorAro} placeholderTextColor={C.muted}/>
+        </View>
+        <View style={{width:10}}/>
+        <View style={{flex:1}}>
+          <Text style={s.label}>Densidad Máx. Proctor (g/cm³)</Text>
+          <TextInput style={s.input} keyboardType="decimal-pad" placeholder="Ej. 2.246" value={densidadProctor} onChangeText={setDensidadProctor} placeholderTextColor={C.muted}/>
+        </View>
+      </View>
+
+      <Text style={[s.label, {marginTop: 15, color: C.accent}]}>3. Lecturas de Penetración</Text>
       {puntos.map((p,i)=>{
-        const pen=num(p.pen), car=num(p.carga);
-        const okP = Number.isFinite(pen)&&Number.isFinite(car);
-        const esf = okP ? car/AREA : null;
+        const lec = num(p.lectura);
+        const carga = (Number.isFinite(lec) && Number.isFinite(FA) && FA > 0) ? lec * FA : null;
         return (
           <View key={i} style={s.puntoBox}>
-            <Text style={s.itemTitulo}>P{i+1}</Text>
+            <Text style={s.itemTitulo}>Punto {i+1}</Text>
             <View style={s.row}>
-              <TextInput style={[s.input,{flex:1}]} keyboardType="decimal-pad" placeholder="Pen (mm)"
+              <TextInput style={[s.input,{flex:1}]} keyboardType="decimal-pad" placeholder="Penetración (mm)"
                 placeholderTextColor={C.muted} value={p.pen} onChangeText={(v)=>setP(i,'pen',v)}/>
               <View style={{width:6}}/>
-              <TextInput style={[s.input,{flex:1}]} keyboardType="decimal-pad" placeholder="Carga (kg)"
-                placeholderTextColor={C.muted} value={p.carga} onChangeText={(v)=>setP(i,'carga',v)}/>
+              <TextInput style={[s.input,{flex:1}]} keyboardType="decimal-pad" placeholder="Lectura Aro (div)"
+                placeholderTextColor={C.muted} value={p.lectura} onChangeText={(v)=>setP(i,'lectura',v)}/>
             </View>
-            {esf!==null && (
-              <Text style={[s.itemSub,{marginTop:4,color:C.accent}]}>Esf = {r(esf,2)} kg/cm²</Text>
+            {carga !== null && (
+              <Text style={[s.itemSub,{marginTop:4, color:C.accent}]}>Carga = {r(carga, 2)} kg</Text>
             )}
           </View>
         );
@@ -1568,11 +1919,21 @@ function CalcCBR({ muestras, guardarEnsayo }) {
         </>
       )}
 
-      {(cbr25!==null || cbr50!==null) && (
-        <ResultadoBox label="CBR"
-          valor={cbrFinal!==null?`${r(cbrFinal)} %`:'—'}
-          sub={`2.5 mm: ${cbr25!==null?r(cbr25)+'%':'—'} · 5.0 mm: ${cbr50!==null?r(cbr50)+'%':'—'}`}
-          color={C.ok}/>
+      {densS !== null && (
+        <View style={[s.resultado, {marginTop: 15}]}>
+          <Text style={s.resultadoLabel}>Densidad Seca del Molde</Text>
+          <Text style={[s.resultadoValor, {color: C.ok}]}>{r(densS, 3)} g/cm³</Text>
+          {pctCompactacion !== null && (
+            <Text style={s.itemSub}>Correspondiente al {r(pctCompactacion, 1)}% del Proctor</Text>
+          )}
+        </View>
+      )}
+
+      {(cbr25 !== null || cbr50 !== null) && (
+        <ResultadoBox label="CBR Bruto"
+          valor={cbrBruto !== null ? `${r(cbrBruto, 1)} %` : '—'}
+          sub={`2.5 mm: ${cbr25 !== null ? r(cbr25, 1)+'%' : '—'} · 5.0 mm: ${cbr50 !== null ? r(cbr50, 1)+'%' : '—'}`}
+          color={C.accent2}/>
       )}
 
       <ObsInput value={obs} onChange={setObs}/>
@@ -1580,7 +1941,6 @@ function CalcCBR({ muestras, guardarEnsayo }) {
     </View>
   );
 }
-
 function GraficoCBR({ medidos }) {
   const W=320, H=200, pad=32;
   const xs = medidos.map(p=>p.pen);
@@ -2237,7 +2597,7 @@ function CalcITS({ muestras, guardarEnsayo, borrarEnsayo, ensayoAEditar, setEnsa
       <Text style={s.cardTitle}>ITS · Tracción Indirecta (Asfalto)</Text>
 
       <Text style={s.label}>Fecha de Producción</Text>
-      <TextInput style={s.input} placeholder="AAAA-MM-DD" 
+      <TextInput style={s.input} placeholder="DD-MM-AAAA" 
         placeholderTextColor={C.muted} value={fechaProd} onChangeText={setFechaProd}/>
 
       <Text style={s.label}>Muestra</Text>
